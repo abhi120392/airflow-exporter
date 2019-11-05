@@ -90,6 +90,23 @@ def get_dag_labels(dag_id):
     return list(labels.keys()), list(labels.values())
 
 
+def get_scheduler_health_info():
+    from airflow import jobs
+    from airflow.settings import Session
+    import logging
+    session = Session()
+    scheduler_status = 0
+    try:
+        scheduler_job = session.query(jobs.SchedulerJob).order_by(jobs.SchedulerJob.latest_heartbeat.desc()).limit(1)\
+            .first()
+        if scheduler_job:
+            if scheduler_job.is_alive():
+                scheduler_status = 1
+    except Exception as ex:
+        logging.exception("Something wrong with scheduler")
+    return scheduler_status
+
+
 class MetricsCollector(object):
     '''collection of metrics for prometheus'''
 
@@ -144,6 +161,16 @@ class MetricsCollector(object):
             else:
                 dag_duration.add_metric([dag.dag_id] + v, dag.duration.seconds)
             yield dag_duration
+
+        # scheduler health info
+        scheduler_health = get_scheduler_health_info()
+        health_info = GaugeMetricFamily(
+            'airflow_scheduler_health',
+            'Airflow Scheduler Health',
+            labels=[]
+        )
+        health_info.add_metric([], scheduler_health)
+        yield health_info
 
 
 REGISTRY.register(MetricsCollector())
